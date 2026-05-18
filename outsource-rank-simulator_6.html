@@ -21,10 +21,10 @@ body{font-family:'BIZ UDPGothic','Noto Sans JP',sans-serif;background:#F0F1F3;mi
 const{useState,useMemo}=React;
 
 const TIERS=[
-  {id:"light",label:"Light 持続化",ch:30000,sk:{Junior:35000,Standard:50000,Senior:60000,Top:70000},defAs:2000000,cliCh:50000,cliSk:350000,fixed:true,defAr:80,defN:12},
-  {id:"mid_m",label:"Mid ものづくり",ch:40000,sk:{Junior:105000,Standard:150000,Senior:180000,Top:210000},defAs:8000000,cliCh:100000,cliRate:10,fixed:false,defAr:33,defN:20},
-  {id:"mid_s",label:"Mid 省力化",ch:40000,sk:{Junior:105000,Standard:150000,Senior:180000,Top:210000},defAs:22000000,cliCh:100000,cliRate:10,fixed:false,defAr:80,defN:10},
-  {id:"std",label:"Std 新事業進出",ch:70000,sk:{Junior:140000,Standard:200000,Senior:240000,Top:280000},defAs:27500000,cliCh:150000,cliRate:10,fixed:false,defAr:70,defN:10},
+  {id:"light",label:"Light 持続化",ch:30000,sk:{Junior:35000,Standard:50000,Senior:60000,Top:70000},defAs:2000000,cliCh:50000,cliSk:350000,fixed:true,defAr:80,defN:12,defLg25:0,defLg50:0},
+  {id:"mid_m",label:"Mid ものづくり",ch:40000,sk:{Junior:105000,Standard:150000,Senior:180000,Top:210000},defAs:8000000,cliCh:100000,cliRate:10,fixed:false,defAr:33,defN:20,defLg25:1,defLg50:0},
+  {id:"mid_s",label:"Mid 省力化",ch:40000,sk:{Junior:105000,Standard:150000,Senior:180000,Top:210000},defAs:22000000,cliCh:100000,cliRate:10,fixed:false,defAr:80,defN:10,defLg25:9,defLg50:13},
+  {id:"std",label:"Std 新事業進出",ch:70000,sk:{Junior:140000,Standard:200000,Senior:240000,Top:280000},defAs:27500000,cliCh:150000,cliRate:10,fixed:false,defAr:70,defN:10,defLg25:44,defLg50:11},
 ];
 const RANKS=["Junior","Standard","Senior","Top"];
 const RC={Junior:"#6B7280",Standard:"#3B82F6",Senior:"#F59E0B",Top:"#EF4444"};
@@ -36,17 +36,19 @@ function yn(n){return"¥"+fm(n);}
 // ランク別採択率補正（ベース採択率からの差分）
 const RANK_AR_ADJ={Junior:-10,Standard:0,Senior:15,Top:25};
 
-function calcMargin(dist,ar,avgSub,outCh,outSk,cliCh,cliSk,cliRate,cliFixed){
+function calcMargin(dist,ar,avgSub,outCh,outSk,cliCh,cliSk,cliRate,cliFixed,lg25,lg50){
   const n=dist.Junior+dist.Standard+dist.Senior+dist.Top;
   if(n===0)return{rev:0,cost:0,profit:0,margin:0};
   let rev=0,cost=0;
+  // 大型案件ボーナス: 採択案件のうちlg25%に+5万、lg50%に+10万（採択時のみ）
+  const bonusPerAdopted=(lg25/100)*50000+(lg50/100)*100000;
   for(const r of RANKS){
     const c=dist[r];if(c===0)continue;
     const rankAr=Math.min(100,Math.max(0,ar+RANK_AR_ADJ[r]))/100;
     const ad=c*rankAr;
     if(cliFixed){rev+=c*cliCh+ad*cliSk;}
     else{rev+=c*cliCh+ad*avgSub*(cliRate/100);}
-    cost+=c*outCh+ad*outSk[r];
+    cost+=c*outCh+ad*outSk[r]+ad*bonusPerAdopted;
   }
   const profit=rev-cost;
   return{rev,cost,profit,margin:rev>0?(profit/rev)*100:0};
@@ -74,6 +76,8 @@ function App(){
   const[ar,setAr]=useState(tier.defAr);
   const[avgSub,setAvgSub]=useState(tier.defAs);
   const[targetMargin,setTargetMargin]=useState(75);
+  const[lg25,setLg25]=useState(tier.defLg25);
+  const[lg50,setLg50]=useState(tier.defLg50);
 
   const[outCh,setOutCh]=useState(tier.ch);
   const[outSk,setOutSk]=useState({...tier.sk});
@@ -85,6 +89,7 @@ function App(){
   const switchTier=(id)=>{
     const t=TIERS.find(x=>x.id===id);
     setTierId(id);setTotalN(t.defN);setAvgSub(t.defAs);setAr(t.defAr);
+    setLg25(t.defLg25);setLg50(t.defLg50);
     setOutCh(t.ch);setOutSk({...t.sk});
     setCliCh(t.cliCh);setCliSk(t.fixed?t.cliSk:0);
     setCliRate(t.fixed?0:t.cliRate);setCliFixed(t.fixed);
@@ -96,7 +101,7 @@ function App(){
     const step=totalN<=50?1:2;
     const patterns=enumerate(totalN,step);
     const all=patterns.map(dist=>{
-      const m=calcMargin(dist,ar,avgSub,outCh,outSk,cliCh,cliSk,cliRate,cliFixed);
+      const m=calcMargin(dist,ar,avgSub,outCh,outSk,cliCh,cliSk,cliRate,cliFixed,lg25,lg50);
       return{...dist,...m};
     });
     all.sort((a,b)=>a.margin-b.margin);
@@ -148,7 +153,7 @@ function App(){
     const worstPatterns=[...all].sort((a,b)=>a.margin-b.margin).slice(0,5);
 
     return{all,pass,fail,minM,maxM,avgM,rankRanges,refRanges,bins,binCount,binW,minMargin:minM,scatter,bestPatterns,worstPatterns,step,totalPatterns:all.length};
-  },[totalN,ar,avgSub,outCh,outSk,cliCh,cliSk,cliRate,cliFixed,targetMargin]);
+  },[totalN,ar,avgSub,outCh,outSk,cliCh,cliSk,cliRate,cliFixed,targetMargin,lg25,lg50]);
 
   const S={
     card:{background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,padding:"10px 12px",marginBottom:10},
@@ -180,6 +185,12 @@ function App(){
           <div style={S.row}><label style={S.label}>総案件数</label><input style={S.input} type="number" min={1} max={100} value={totalN} onChange={e=>setTotalN(Math.max(1,+e.target.value||1))}/><span style={S.unit}>件</span></div>
           <div style={S.row}><label style={S.label}>採択率</label><input style={S.input} type="number" min={0} max={100} value={ar} onChange={e=>setAr(Math.min(100,Math.max(0,+e.target.value||0)))}/><span style={S.unit}>%</span></div>
           <div style={S.row}><label style={S.label}>平均申請額</label><input style={{...S.input,width:70}} type="number" min={0} step={10} value={Math.round(avgSub/10000)} onChange={e=>setAvgSub((+e.target.value||0)*10000)}/><span style={S.unit}>万円</span></div>
+          <div style={{borderTop:"1px solid #E5E7EB",paddingTop:6,marginTop:4,marginBottom:2}}>
+            <div style={{fontSize:9,fontWeight:700,color:"#6B7280",marginBottom:4}}>大型案件ボーナス（採択時・外注へ加算）</div>
+            <div style={S.row}><label style={S.label}>2500万〜5000万未満</label><input style={S.input} type="number" min={0} max={100} value={lg25} onChange={e=>setLg25(Math.min(100,Math.max(0,+e.target.value||0)))}/><span style={S.unit}>%</span></div>
+            <div style={S.row}><label style={S.label}>5000万以上</label><input style={S.input} type="number" min={0} max={100} value={lg50} onChange={e=>setLg50(Math.min(100,Math.max(0,+e.target.value||0)))}/><span style={S.unit}>%</span></div>
+            <div style={{fontSize:8,color:"#9CA3AF",lineHeight:1.4}}>+¥5万(2500万〜) / +¥10万(5000万〜) を外注支払に加算</div>
+          </div>
         </div>
 
         <div style={S.card}>
@@ -346,7 +357,7 @@ function App(){
           <div style={{padding:"6px 8px",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,fontSize:9,color:"#78350F",lineHeight:1.5,marginTop:10}}>
             <b style={{color:"#92400E"}}>前提: </b>
             ランク別採択率: Junior={ar-10>0?ar-10:0}%(-10pt) / Standard={ar}%(±0) / Senior={Math.min(100,ar+15)}%(+15pt) / Top={Math.min(100,ar+25)}%(+25pt) ／
-            短納期加算・大型案件ボーナスは含まず ／
+            短納期加算は含まず ／ 大型案件ボーナスは反映済み ／
             {analysis.step}件刻みで網羅（{analysis.totalPatterns.toLocaleString()}パターン）
           </div>
         </>}
