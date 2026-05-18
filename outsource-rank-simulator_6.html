@@ -21,10 +21,10 @@ body{font-family:'BIZ UDPGothic','Noto Sans JP',sans-serif;background:#F0F1F3;mi
 const{useState,useMemo}=React;
 
 const TIERS=[
-  {id:"light",label:"Light 持続化",ch:30000,sk:{Junior:35000,Standard:50000,Senior:60000,Top:70000},defAs:2000000,cliCh:50000,cliSk:350000,fixed:true,defAr:80},
-  {id:"mid_m",label:"Mid ものづくり",ch:40000,sk:{Junior:105000,Standard:150000,Senior:180000,Top:210000},defAs:8000000,cliCh:100000,cliRate:10,fixed:false,defAr:33},
-  {id:"mid_s",label:"Mid 省力化",ch:40000,sk:{Junior:105000,Standard:150000,Senior:180000,Top:210000},defAs:22000000,cliCh:100000,cliRate:10,fixed:false,defAr:80},
-  {id:"std",label:"Std 新事業進出",ch:70000,sk:{Junior:140000,Standard:200000,Senior:240000,Top:280000},defAs:27500000,cliCh:150000,cliRate:10,fixed:false,defAr:70},
+  {id:"light",label:"Light 持続化",ch:30000,sk:{Junior:35000,Standard:50000,Senior:60000,Top:70000},defAs:2000000,cliCh:50000,cliSk:350000,fixed:true,defAr:80,defN:12},
+  {id:"mid_m",label:"Mid ものづくり",ch:40000,sk:{Junior:105000,Standard:150000,Senior:180000,Top:210000},defAs:8000000,cliCh:100000,cliRate:10,fixed:false,defAr:33,defN:20},
+  {id:"mid_s",label:"Mid 省力化",ch:40000,sk:{Junior:105000,Standard:150000,Senior:180000,Top:210000},defAs:22000000,cliCh:100000,cliRate:10,fixed:false,defAr:80,defN:10},
+  {id:"std",label:"Std 新事業進出",ch:70000,sk:{Junior:140000,Standard:200000,Senior:240000,Top:280000},defAs:27500000,cliCh:150000,cliRate:10,fixed:false,defAr:70,defN:10},
 ];
 const RANKS=["Junior","Standard","Senior","Top"];
 const RC={Junior:"#6B7280",Standard:"#3B82F6",Senior:"#F59E0B",Top:"#EF4444"};
@@ -70,7 +70,7 @@ function App(){
   const[tierId,setTierId]=useState("mid_s");
   const tier=TIERS.find(t=>t.id===tierId);
 
-  const[totalN,setTotalN]=useState(30);
+  const[totalN,setTotalN]=useState(tier.defN);
   const[ar,setAr]=useState(tier.defAr);
   const[avgSub,setAvgSub]=useState(tier.defAs);
   const[targetMargin,setTargetMargin]=useState(75);
@@ -84,7 +84,7 @@ function App(){
 
   const switchTier=(id)=>{
     const t=TIERS.find(x=>x.id===id);
-    setTierId(id);setAvgSub(t.defAs);setAr(t.defAr);
+    setTierId(id);setTotalN(t.defN);setAvgSub(t.defAs);setAr(t.defAr);
     setOutCh(t.ch);setOutSk({...t.sk});
     setCliCh(t.cliCh);setCliSk(t.fixed?t.cliSk:0);
     setCliRate(t.fixed?0:t.cliRate);setCliFixed(t.fixed);
