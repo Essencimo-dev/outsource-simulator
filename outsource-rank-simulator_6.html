@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ランク配分 × 粗利率シミュレーター | Essencimo</title>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap" rel="stylesheet">
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'BIZ UDPGothic','Noto Sans JP',sans-serif;background:#F0F1F3;min-height:100vh;color:#1a1a1a;font-size:11px}
+#root{max-width:1280px;margin:0 auto;padding:16px 20px}
+.pos{color:#059669}.neg{color:#DC2626}.warn{color:#D97706}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useMemo}=React;
+
+const TIERS=[
+  {id:"light",label:"Light 持続化",ch:30000,sk:{Junior:35000,Standard:50000,Senior:60000,Top:70000},defAs:2000000,cliCh:50000,cliSk:350000,fixed:true,defAr:80},
+  {id:"mid_m",label:"Mid ものづくり",ch:40000,sk:{Junior:105000,Standard:150000,Senior:180000,Top:210000},defAs:8500000,cliCh:100000,cliRate:10,fixed:false,defAr:33},
+  {id:"mid_s",label:"Mid 省力化",ch:40000,sk:{Junior:105000,Standard:150000,Senior:180000,Top:210000},defAs:10000000,cliCh:100000,cliRate:10,fixed:false,defAr:80},
+  {id:"std",label:"Std 新事業進出",ch:70000,sk:{Junior:140000,Standard:200000,Senior:240000,Top:280000},defAs:10000000,cliCh:100000,cliRate:10,fixed:false,defAr:70},
+];
+const RANKS=["Junior","Standard","Senior","Top"];
+const RC={Junior:"#6B7280",Standard:"#3B82F6",Senior:"#F59E0B",Top:"#EF4444"};
+
+function fm(n){return Math.abs(n)>=10000?(n/10000).toFixed(1).replace(/\.0$/,"")+"万":n.toLocaleString();}
+function yn(n){return"¥"+fm(n);}
+
+// 1パターンの粗利率を計算
+// ランク別採択率補正（ベース採択率からの差分）
+const RANK_AR_ADJ={Junior:-10,Standard:0,Senior:15,Top:25};
+
+function calcMargin(dist,ar,avgSub,outCh,outSk,cliCh,cliSk,cliRate,cliFixed){
+  const n=dist.Junior+dist.Standard+dist.Senior+dist.Top;
+  if(n===0)return{rev:0,cost:0,profit:0,margin:0};
+  let rev=0,cost=0;
+  for(const r of RANKS){
+    const c=dist[r];if(c===0)continue;
+    const rankAr=Math.min(100,Math.max(0,ar+RANK_AR_ADJ[r]))/100;
+    const ad=c*rankAr;
+    if(cliFixed){rev+=c*cliCh+ad*cliSk;}
+    else{rev+=c*cliCh+ad*avgSub*(cliRate/100);}
+    cost+=c*outCh+ad*outSk[r];
+  }
+  const profit=rev-cost;
+  return{rev,cost,profit,margin:rev>0?(profit/rev)*100:0};
+}
+
+// N件の4ランク全配分を列挙（ステップ刻み）
+function enumerate(total,step){
+  const results=[];
+  for(let j=0;j<=total;j+=step){
+    for(let s=0;s<=total-j;s+=step){
+      for(let sr=0;sr<=total-j-s;sr+=step){
+        const t=total-j-s-sr;
+        if(t>=0)results.push({Junior:j,Standard:s,Senior:sr,Top:t});
+      }
+    }
+  }
+  return results;
+}
+
+function App(){
+  const[tierId,setTierId]=useState("mid_s");
+  const tier=TIERS.find(t=>t.id===tierId);
+
+  const[totalN,setTotalN]=useState(30);
+  const[ar,setAr]=useState(tier.defAr);
+  const[avgSub,setAvgSub]=useState(tier.defAs);
+  const[targetMargin,setTargetMargin]=useState(75);
+
+  const[outCh,setOutCh]=useState(tier.ch);
+  const[outSk,setOutSk]=useState({...tier.sk});
+  const[cliCh,setCliCh]=useState(tier.cliCh);
+  const[cliSk,setCliSk]=useState(tier.fixed?tier.cliSk:0);
+  const[cliRate,setCliRate]=useState(tier.fixed?0:tier.cliRate);
+  const[cliFixed,setCliFixed]=useState(tier.fixed);
+
+  const switchTier=(id)=>{
+    const t=TIERS.find(x=>x.id===id);
+    setTierId(id);setAvgSub(t.defAs);setAr(t.defAr);
+    setOutCh(t.ch);setOutSk({...t.sk});
+    setCliCh(t.cliCh);setCliSk(t.fixed?t.cliSk:0);
+    setCliRate(t.fixed?0:t.cliRate);setCliFixed(t.fixed);
+  };
+
+  // 全パターン計算
+  const analysis=useMemo(()=>{
+    if(totalN===0)return null;
+    const step=totalN<=50?1:2;
+    const patterns=enumerate(totalN,step);
+    const all=patterns.map(dist=>{
+      const m=calcMargin(dist,ar,avgSub,outCh,outSk,cliCh,cliSk,cliRate,cliFixed);
+      return{...dist,...m};
+    });
+    all.sort((a,b)=>a.margin-b.margin);
+
+    const pass=all.filter(x=>x.margin>=targetMargin);
+    const fail=all.filter(x=>x.margin<targetMargin);
+    const margins=all.map(x=>x.margin);
+    const minM=margins[0],maxM=margins[margins.length-1];
+    const avgM=margins.reduce((a,b)=>a+b,0)/margins.length;
+
+    // 各ランクごとの「目標達成パターンでの件数レンジ」
+    const rankRanges={};
+    for(const r of RANKS){
+      if(pass.length>0){
+        const vals=pass.map(p=>p[r]);
+        rankRanges[r]={min:Math.min(...vals),max:Math.max(...vals),avg:vals.reduce((a,b)=>a+b,0)/vals.length};
+      }else{
+        rankRanges[r]={min:"-",max:"-",avg:"-"};
+      }
+    }
+
+    // 15%/20%ライン用
+    const refLines=[15,20];
+    const refRanges={};
+    for(const rl of refLines){
+      const rpass=all.filter(x=>x.margin>=rl);
+      const rr={};
+      for(const r of RANKS){
+        if(rpass.length>0){const vals=rpass.map(p=>p[r]);rr[r]={min:Math.min(...vals),max:Math.max(...vals),avg:vals.reduce((a,b)=>a+b,0)/vals.length};}
+        else{rr[r]={min:"-",max:"-",avg:"-"};}
+      }
+      refRanges[rl]={ranges:rr,count:rpass.length,pct:(rpass.length/all.length*100)};
+    }
+
+    // ヒストグラム用
+    const binCount=30;
+    const range=maxM-minM||1;
+    const binW=range/binCount;
+    const bins=Array(binCount).fill(0);
+    margins.forEach(m=>{const i=Math.min(Math.floor((m-minM)/binW),binCount-1);bins[i]++;});
+
+    // 各ランク比率 vs 粗利率（散布図用）
+    const scatter={};
+    for(const r of RANKS){
+      scatter[r]=all.map(p=>({pct:totalN>0?(p[r]/totalN)*100:0,margin:p.margin}));
+    }
+
+    const bestPatterns=[...all].sort((a,b)=>b.margin-a.margin).slice(0,10);
+    const worstPatterns=[...all].sort((a,b)=>a.margin-b.margin).slice(0,5);
+
+    return{all,pass,fail,minM,maxM,avgM,rankRanges,refRanges,bins,binCount,binW,minMargin:minM,scatter,bestPatterns,worstPatterns,step,totalPatterns:all.length};
+  },[totalN,ar,avgSub,outCh,outSk,cliCh,cliSk,cliRate,cliFixed,targetMargin]);
+
+  const S={
+    card:{background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,padding:"10px 12px",marginBottom:10},
+    cardTitle:{fontSize:11,fontWeight:800,color:"#374151",marginBottom:8,paddingBottom:5,borderBottom:"1px solid #F3F4F6"},
+    row:{display:"flex",alignItems:"center",gap:6,marginBottom:5},
+    label:{fontSize:10,fontWeight:600,color:"#6B7280",flex:1,display:"flex",alignItems:"center",gap:4},
+    input:{width:60,fontSize:12,fontWeight:600,textAlign:"center",border:"1px solid #D1D5DB",borderRadius:4,padding:"4px",fontFamily:"inherit",background:"#fff"},
+    unit:{fontSize:9,color:"#9CA3AF",minWidth:24},
+    dot:{width:7,height:7,borderRadius:"50%",display:"inline-block"},
+    tab:{padding:"6px 12px",fontSize:10,fontWeight:600,border:"1px solid #D1D5DB",borderRadius:6,background:"#fff",cursor:"pointer",fontFamily:"inherit",color:"#374151"},
+    tabA:{background:"#1D4ED8",color:"#fff",borderColor:"#1D4ED8"},
+    select:{fontSize:10,border:"1px solid #D1D5DB",borderRadius:4,padding:"3px 6px",fontFamily:"inherit",background:"#fff"},
+  };
+
+  return(
+  <div>
+    <h1 style={{fontSize:15,fontWeight:800,letterSpacing:"-.01em"}}>ランク配分 × 粗利率シミュレーター</h1>
+    <p style={{fontSize:9,color:"#9CA3AF",marginBottom:12}}>全ランク配分パターンを網羅計算し、目標粗利率を達成する条件を可視化</p>
+
+    <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
+      {TIERS.map(t=><button key={t.id} onClick={()=>switchTier(t.id)} style={{...S.tab,...(t.id===tierId?S.tabA:{})}}>{t.label}</button>)}
+    </div>
+
+    <div style={{display:"grid",gridTemplateColumns:"280px 1fr",gap:12,alignItems:"start"}}>
+      {/* 左：入力 */}
+      <div>
+        <div style={S.card}>
+          <div style={S.cardTitle}>シミュレーション条件</div>
+          <div style={S.row}><label style={S.label}>総案件数</label><input style={S.input} type="number" min={1} max={100} value={totalN} onChange={e=>setTotalN(Math.max(1,+e.target.value||1))}/><span style={S.unit}>件</span></div>
+          <div style={S.row}><label style={S.label}>採択率</label><input style={S.input} type="number" min={0} max={100} value={ar} onChange={e=>setAr(Math.min(100,Math.max(0,+e.target.value||0)))}/><span style={S.unit}>%</span></div>
+          <div style={S.row}><label style={S.label}>平均申請額</label><input style={{...S.input,width:70}} type="number" min={0} step={10} value={Math.round(avgSub/10000)} onChange={e=>setAvgSub((+e.target.value||0)*10000)}/><span style={S.unit}>万円</span></div>
+        </div>
+
+        <div style={S.card}>
+          <div style={S.cardTitle}>外注報酬設定</div>
+          <div style={S.row}><label style={S.label}>着手金</label><input style={S.input} type="number" step={0.5} value={+(outCh/10000).toFixed(2)} onChange={e=>setOutCh((parseFloat(e.target.value)||0)*10000)}/><span style={S.unit}>万円</span></div>
+          {RANKS.map(r=><div key={r} style={S.row}><label style={S.label}><span style={{...S.dot,background:RC[r]}}/>{r}</label><input style={S.input} type="number" step={0.5} value={+(outSk[r]/10000).toFixed(2)} onChange={e=>setOutSk(p=>({...p,[r]:(parseFloat(e.target.value)||0)*10000}))}/><span style={S.unit}>万円</span></div>)}
+        </div>
+
+        <div style={S.card}>
+          <div style={S.cardTitle}>顧客報酬設定</div>
+          <div style={S.row}><label style={S.label}>着手金</label><input style={S.input} type="number" step={0.5} value={+(cliCh/10000).toFixed(2)} onChange={e=>setCliCh((parseFloat(e.target.value)||0)*10000)}/><span style={S.unit}>万円</span></div>
+          <div style={S.row}><label style={S.label}>方式</label><select style={S.select} value={cliFixed?"f":"r"} onChange={e=>setCliFixed(e.target.value==="f")}><option value="f">定額</option><option value="r">料率</option></select></div>
+          {cliFixed?
+            <div style={S.row}><label style={S.label}>成功報酬</label><input style={S.input} type="number" step={0.5} value={+(cliSk/10000).toFixed(2)} onChange={e=>setCliSk((parseFloat(e.target.value)||0)*10000)}/><span style={S.unit}>万円</span></div>
+          : <div style={S.row}><label style={S.label}>成功報酬率</label><input style={S.input} type="number" step={0.5} value={cliRate} onChange={e=>setCliRate(parseFloat(e.target.value)||0)}/><span style={S.unit}>%</span></div>
+          }
+        </div>
+      </div>
+
+      {/* 右：結果 */}
+      <div>
+        {analysis&&<>
+          {/* サマリー */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:1,background:"#D1D5DB",borderRadius:8,overflow:"hidden",marginBottom:10}}>
+            <div style={{background:"#fff",padding:"8px",textAlign:"center"}}><div style={{fontSize:8,color:"#9CA3AF",fontWeight:600}}>全パターン数</div><div style={{fontSize:16,fontWeight:800,marginTop:2}}>{analysis.totalPatterns.toLocaleString()}</div><div style={{fontSize:8,color:"#9CA3AF"}}>{analysis.step}件刻み</div></div>
+            <div style={{background:"#fff",padding:"8px",textAlign:"center"}}><div style={{fontSize:8,color:"#9CA3AF",fontWeight:600}}>達成パターン</div><div style={{fontSize:16,fontWeight:800,marginTop:2,color:"#059669"}}>{analysis.pass.length}</div><div style={{fontSize:8,color:"#9CA3AF"}}>{(analysis.pass.length/analysis.totalPatterns*100).toFixed(1)}%</div></div>
+            <div style={{background:"#fff",padding:"8px",textAlign:"center"}}><div style={{fontSize:8,color:"#9CA3AF",fontWeight:600}}>粗利率レンジ</div><div style={{fontSize:14,fontWeight:800,marginTop:2}}>{analysis.minM.toFixed(1)}〜{analysis.maxM.toFixed(1)}%</div></div>
+            <div style={{background:"#fff",padding:"8px",textAlign:"center"}}><div style={{fontSize:8,color:"#9CA3AF",fontWeight:600}}>平均粗利率</div><div style={{fontSize:16,fontWeight:800,marginTop:2,color:analysis.avgM>=targetMargin?"#059669":"#D97706"}}>{analysis.avgM.toFixed(1)}%</div></div>
+          </div>
+
+          {/* 目標達成に必要なランク配分 */}
+          <div style={S.card}>
+            <div style={{...S.cardTitle,display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>目標<input type="number" min={0} max={100} step={1} value={targetMargin} onChange={e=>setTargetMargin(+e.target.value||0)} style={{width:48,fontSize:13,fontWeight:800,textAlign:"center",border:"1px solid #3B82F6",borderRadius:4,padding:"2px 4px",fontFamily:"inherit",color:"#1D4ED8",background:"#EFF6FF"}}/>%達成に必要なランク配分（{totalN}件中）</div>
+            {analysis.pass.length===0?
+              <div style={{color:"#DC2626",fontSize:12,fontWeight:700,padding:8}}>どの配分でも目標粗利率{targetMargin}%を達成できません。報酬設定の見直しが必要です。</div>
+            :<>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:8}}>
+                {RANKS.map(r=>{const rr=analysis.rankRanges[r];return(
+                  <div key={r} style={{background:"#F9FAFB",borderRadius:6,padding:8,textAlign:"center"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4,marginBottom:4}}><span style={{...S.dot,background:RC[r]}}/><span style={{fontSize:10,fontWeight:700}}>{r}</span></div>
+                    <div style={{fontSize:14,fontWeight:800}}>{rr.min}〜{rr.max}件</div>
+                    <div style={{fontSize:9,color:"#6B7280"}}>平均{typeof rr.avg==="number"?rr.avg.toFixed(1):rr.avg}件</div>
+                  </div>
+                );})}
+              </div>
+              <div style={{fontSize:9,color:"#6B7280",lineHeight:1.5}}>
+                ※ 目標達成パターン{analysis.pass.length}件から算出したレンジ。「Junior {analysis.rankRanges.Junior.max}件以下」かつ上位ランクへの配分が条件。
+              </div>
+            </>}
+          </div>
+
+          {/* ヒストグラム */}
+          <div style={S.card}>
+            <div style={S.cardTitle}>粗利率の分布（全パターン）</div>
+            <svg viewBox="0 0 620 200" style={{width:"100%"}}>
+              {analysis.bins.map((c,i)=>{
+                const x=40+i*(560/analysis.binCount);
+                const bW=560/analysis.binCount;
+                const h=analysis.bins.reduce((a,b)=>Math.max(a,b),1);
+                const bH=(c/h)*150;
+                const mid=analysis.minM+(i+0.5)*analysis.binW;
+                const col=mid>=targetMargin?"#6EE7B7":"#FCA5A5";
+                return <rect key={i} x={x} y={180-bH} width={bW-1} height={bH} fill={col} rx={1}/>;
+              })}
+              {/* 目標線 */}
+              {(()=>{const x=40+((targetMargin-analysis.minM)/(analysis.maxM-analysis.minM||1))*560;
+                return x>=40&&x<=600?<><line x1={x} y1={10} x2={x} y2={180} stroke="#1D4ED8" strokeWidth={2} strokeDasharray="4,3"/><text x={x} y={8} textAnchor="middle" fontSize={9} fill="#1D4ED8" fontWeight={700}>目標{targetMargin}%</text></>:null;
+              })()}
+              {/* 15%ライン */}
+              {(()=>{const rng=analysis.maxM-analysis.minM||1;const x=40+((15-analysis.minM)/rng)*560;
+                return x>=40&&x<=600?<><line x1={x} y1={10} x2={x} y2={180} stroke="#D97706" strokeWidth={1.5} strokeDasharray="3,2"/><text x={x+3} y={20} textAnchor="start" fontSize={8} fill="#D97706" fontWeight={600}>15%</text></>:null;
+              })()}
+              {/* 20%ライン */}
+              {(()=>{const rng=analysis.maxM-analysis.minM||1;const x=40+((20-analysis.minM)/rng)*560;
+                return x>=40&&x<=600?<><line x1={x} y1={10} x2={x} y2={180} stroke="#059669" strokeWidth={1.5} strokeDasharray="3,2"/><text x={x+3} y={30} textAnchor="start" fontSize={8} fill="#059669" fontWeight={600}>20%</text></>:null;
+              })()}
+              {/* X軸 */}
+              <line x1={40} y1={180} x2={600} y2={180} stroke="#D1D5DB"/>
+              {Array.from({length:6},(_, i)=>{const v=analysis.minM+(analysis.maxM-analysis.minM)/5*i;return<text key={i} x={40+(i/5)*560} y={195} textAnchor="middle" fontSize={8} fill="#9CA3AF">{v.toFixed(0)}%</text>;})}
+              <text x={40} y={16} fontSize={8} fill="#9CA3AF">件数</text>
+            </svg>
+            <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:4,fontSize:9}}>
+              <span><span style={{display:"inline-block",width:10,height:10,background:"#6EE7B7",borderRadius:2,verticalAlign:"middle",marginRight:3}}/>目標達成</span>
+              <span><span style={{display:"inline-block",width:10,height:10,background:"#FCA5A5",borderRadius:2,verticalAlign:"middle",marginRight:3}}/>未達成</span>
+              <span><span style={{display:"inline-block",width:10,height:2,background:"#D97706",verticalAlign:"middle",marginRight:3}}/>15%</span>
+              <span><span style={{display:"inline-block",width:10,height:2,background:"#059669",verticalAlign:"middle",marginRight:3}}/>20%</span>
+            </div>
+          </div>
+
+          {/* 散布図：各ランク比率 vs 粗利率 */}
+          <div style={S.card}>
+            <div style={S.cardTitle}>各ランクの構成比 → 粗利率への影響</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8}}>
+              {RANKS.map(r=>{
+                const pts=analysis.scatter[r];
+                const allM=pts.map(q=>q.margin);const mi=Math.min(...allM),ma=Math.max(...allM);const rng=ma-mi||1;
+                const lineY=v=>120-((v-mi)/rng)*110;
+                return(
+                <div key={r} style={{background:"#F9FAFB",borderRadius:6,padding:6}}>
+                  <div style={{fontSize:9,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:4}}><span style={{...S.dot,background:RC[r]}}/>{r}の比率 vs 粗利率</div>
+                  <svg viewBox="0 0 260 140" style={{width:"100%"}}>
+                    {/* 目標線 */}
+                    {(()=>{const y=lineY(targetMargin);return y>=10&&y<=120?<><line x1={30} y1={y} x2={250} y2={y} stroke="#1D4ED8" strokeWidth={1} strokeDasharray="3,2" opacity={0.5}/><text x={252} y={y+3} fontSize={7} fill="#1D4ED8">{targetMargin}%</text></>:null;})()}
+                    {/* 20%ライン */}
+                    {(()=>{const y=lineY(20);return y>=10&&y<=120?<line x1={30} y1={y} x2={250} y2={y} stroke="#059669" strokeWidth={0.8} strokeDasharray="2,2" opacity={0.5}/>:null;})()}
+                    {/* 15%ライン */}
+                    {(()=>{const y=lineY(15);return y>=10&&y<=120?<line x1={30} y1={y} x2={250} y2={y} stroke="#D97706" strokeWidth={0.8} strokeDasharray="2,2" opacity={0.5}/>:null;})()}
+                    {/* 点 */}
+                    {pts.map((p,i)=>{
+                      const x=30+(p.pct/100)*220;
+                      const y=lineY(p.margin);
+                      const col=p.margin>=targetMargin?"#059669":"#F87171";
+                      return <circle key={i} cx={x} cy={y} r={2} fill={col} opacity={0.4}/>;
+                    })}
+                    {/* 軸 */}
+                    <line x1={30} y1={120} x2={250} y2={120} stroke="#D1D5DB"/>
+                    <line x1={30} y1={10} x2={30} y2={120} stroke="#D1D5DB"/>
+                    <text x={140} y={136} textAnchor="middle" fontSize={8} fill="#9CA3AF">{r}比率(%)</text>
+                    {[0,25,50,75,100].map(v=><text key={v} x={30+(v/100)*220} y={130} textAnchor="middle" fontSize={7} fill="#9CA3AF">{v}</text>)}
+                  </svg>
+                </div>);
+              })}
+            </div>
+          </div>
+
+          {/* ベスト・ワーストパターン */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div style={S.card}>
+              <div style={S.cardTitle}>粗利率トップ10パターン</div>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+                <thead><tr style={{borderBottom:"1px solid #E5E7EB"}}>
+                  <th style={{padding:"4px 4px",fontWeight:700,textAlign:"center",fontSize:9}}>#</th>
+                  {RANKS.map(r=><th key={r} style={{padding:"4px 4px",fontWeight:700,textAlign:"center"}}><span style={{...S.dot,background:RC[r],marginRight:1}}/>{r}</th>)}
+                  <th style={{padding:"4px 4px",fontWeight:700}}>粗利率</th>
+                  <th style={{padding:"4px 4px",fontWeight:700}}>粗利額</th>
+                </tr></thead>
+                <tbody>{analysis.bestPatterns.map((p,i)=><tr key={i} style={{borderBottom:"1px solid #F3F4F6",background:i===0?"#F0FDF4":""}}>
+                  <td style={{padding:"3px 4px",textAlign:"center",color:"#9CA3AF",fontSize:9}}>{i+1}</td>
+                  {RANKS.map(r=><td key={r} style={{padding:"3px 4px",textAlign:"center",fontWeight:r==="Junior"||r==="Top"?700:400}}>{p[r]}</td>)}
+                  <td style={{padding:"3px 4px",fontWeight:700,color:"#059669"}}>{p.margin.toFixed(1)}%</td>
+                  <td style={{padding:"3px 4px",color:"#059669",fontVariantNumeric:"tabular-nums"}}>{yn(Math.round(p.profit))}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+            <div style={S.card}>
+              <div style={S.cardTitle}>粗利率ワースト5パターン</div>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+                <thead><tr style={{borderBottom:"1px solid #E5E7EB"}}>
+                  <th style={{padding:"4px 4px",fontWeight:700,textAlign:"center",fontSize:9}}>#</th>
+                  {RANKS.map(r=><th key={r} style={{padding:"4px 4px",fontWeight:700,textAlign:"center"}}><span style={{...S.dot,background:RC[r],marginRight:1}}/>{r}</th>)}
+                  <th style={{padding:"4px 4px",fontWeight:700}}>粗利率</th>
+                  <th style={{padding:"4px 4px",fontWeight:700}}>粗利額</th>
+                </tr></thead>
+                <tbody>{analysis.worstPatterns.map((p,i)=><tr key={i} style={{borderBottom:"1px solid #F3F4F6"}}>
+                  <td style={{padding:"3px 4px",textAlign:"center",color:"#9CA3AF",fontSize:9}}>{i+1}</td>
+                  {RANKS.map(r=><td key={r} style={{padding:"3px 4px",textAlign:"center"}}>{p[r]}</td>)}
+                  <td style={{padding:"3px 4px",fontWeight:700,color:p.margin<0?"#DC2626":"#D97706"}}>{p.margin.toFixed(1)}%</td>
+                  <td style={{padding:"3px 4px",color:p.profit<0?"#DC2626":"#D97706",fontVariantNumeric:"tabular-nums"}}>{yn(Math.round(p.profit))}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style={{padding:"6px 8px",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,fontSize:9,color:"#78350F",lineHeight:1.5,marginTop:10}}>
+            <b style={{color:"#92400E"}}>前提: </b>
+            ランク別採択率: Junior={ar-10>0?ar-10:0}%(-10pt) / Standard={ar}%(±0) / Senior={Math.min(100,ar+15)}%(+15pt) / Top={Math.min(100,ar+25)}%(+25pt) ／
+            短納期加算・大型案件ボーナスは含まず ／
+            {analysis.step}件刻みで網羅（{analysis.totalPatterns.toLocaleString()}パターン）
+          </div>
+        </>}
+      </div>
+    </div>
+  </div>);
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
